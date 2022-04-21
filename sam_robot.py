@@ -239,7 +239,7 @@ def GetUserCart(personal_info, store_list):
 		print(f"--- [Exception] {str(e)}")
 		return RET_CODE.EXCEPTION, None
 
-def getCapacityData(store_selected):
+def GetCapacityData(store_selected):
 	print(f'- 获取可用配送时间 {CurrentTime()} -')
 	url = public_url + '/api/v1/sams/delivery/portal/getCapacityData'
 	try:
@@ -350,7 +350,7 @@ if __name__ == '__main__':
 				deliverEndTime = UnixTime(CONST_END_TIME)
 				ret_code = RET_CODE.SUCCESS
 			else:
-				ret_code, deliverStartTime, deliverEndTime = getCapacityData(store_selected)
+				ret_code, deliverStartTime, deliverEndTime = GetCapacityData(store_selected)
 		elif state == STATE_CODE.COMMIT_PAY:
 			ret_code = CommitPay(address_selected, store_selected, goods_list, personal_info, deliverStartTime, deliverEndTime)
 			
