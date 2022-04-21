@@ -1,9 +1,12 @@
 # sam_robot
 山姆自动下单机器人
 
+### 运行环境
+Python 3.8.9
+
 ### 安装依赖
 ```bash
-pip install --index-url https://pypi.douban.com/simple/ requests
+pip install requests
 ```
 
 ### 需要抓包填入的字段
