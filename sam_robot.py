@@ -43,10 +43,10 @@ class RET_CODE(IntEnum):
 	NO_DELIVERY_TIME = 2, # 没有可用配送时间
 	NOT_DELIVERY_CAPACITY_ERROR = 3, # 当前可用配送时间已约满
 	DECREASE_CAPACITY_COUNT_ERROR = 4, # 扣减运力失败
-	LIMITED = 3, # 访问限制
-	STORE_HAS_CLOSED = 4, # 商店关门
-	OUT_OF_STOCK = 5, # 商品缺货
-	UNKNOWN_ERROR = 6, # 未知错误
+	LIMITED = 5, # 访问限制
+	STORE_HAS_CLOSED = 6, # 商店关门
+	OUT_OF_STOCK = 7, # 商品缺货
+	UNKNOWN_ERROR = 8, # 未知错误
 	
 def UnixTime(dt):
 	timeArray = time.strptime(dt, "%Y-%m-%d %H:%M:%S")
