@@ -9,7 +9,7 @@ from enum import IntEnum
 DEVICE_ID = ''
 AUTHTOKEN = ''
 # 配送方式
-DELIVERY_TYPE = '2' # 1-极速达 / 2-全城送
+DELIVERY_TYPE = '1' # 1-极速达 / 2-全城送
 # 是否使用固定的期望配送时间，留空则轮训服务器是否有可用时间
 CONST_START_TIME = "" #"2022-04-22 09:00:00"
 CONST_END_TIME = "" #"2022-04-22 21:00:00"
@@ -20,6 +20,10 @@ TIMEOUT_DURATION = 10 # 发包超时时间
 REFRESH_CART_TIME = 3 # 如果一直无可用配送时间，尝试__次后重新刷新一下购物车
 # 企业微信机器人通知
 WECOM_ROBOT_URL = "" # https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=
+# 起始购买金额
+print(f"- 输入起始购买金额：", end = "")
+cost = int(input())
+print()
 
 public_url = "https://api-sams.walmartmobile.cn"
 public_headers = {
@@ -211,6 +215,7 @@ def GetUserCart(personal_info, store_list):
 			for promotionFloorGoods in promotionFloorGoodsList:
 				normalGoodsList += promotionFloorGoods.get('promotionGoodsList')
 			goods_list = []
+			products = []
 			total_amount = 0
 			for i in range(len(normalGoodsList)):
 				isSelected = normalGoodsList[i].get('isSelected')
@@ -220,24 +225,91 @@ def GetUserCart(personal_info, store_list):
 					storeId = normalGoodsList[i].get('storeId')
 					quantity = normalGoodsList[i].get('quantity')
 					price = normalGoodsList[i].get('price')
+					brandId = normalGoodsList[i].get('brandId')
+					deliveryAttr = normalGoodsList[i].get('deliveryAttr')
+					goodsImage = normalGoodsList[i].get('goodsImage')
+					skuId = normalGoodsList[i].get('skuId')
+					if skuId == None:
+						skuId = ""
+					categoryIdList = normalGoodsList[i].get('categoryIdList')
 					goods_list.append({
 						"spuId": spuId,
 						"storeId": storeId,
 						"isSelected": 'true',
+						"quantity": quantity
+					})
+					products.append({
+						"prices": {
+							"sale": int(price)
+						},
 						"quantity": quantity,
+						"brandId": brandId,
+						"goodSpecification": 0,
+						"deliveryAttr": deliveryAttr,
+						"image": goodsImage,
+						"selected": True,
+						"storeId": storeId,
+						"skuId": skuId,
+						"spuId": spuId,
+						"categoryIds": categoryIdList
 					})
 					print(f'[{i}] {goodsName} {int(price) / 100}元 * {quantity}')
 					total_amount += quantity * int(price) / 100
 			print(f'--- 共{len(goods_list)}件商品 总价{total_amount}元\n')
-			return RET_CODE.SUCCESS, goods_list
+			return RET_CODE.SUCCESS, goods_list, products, total_amount
 		elif ret_json['code'] == 'LIMITED':
-			return RET_CODE.LIMITED, None
+			return RET_CODE.LIMITED, None, None, None
+		else:
+			print(f"--- [Error] {ret_json['code']} {ret_json['msg']}")
+			return RET_CODE.UNKNOWN_ERROR, None, None, None
+	except Exception as e:
+		print(f"--- [Exception] {str(e)}")
+		return RET_CODE.EXCEPTION, None, None, None
+
+def GetPromotion(personal_info, store_selected, products):
+	print(f'- 获取优惠券列表 {CurrentTime()} -')
+	url = public_url + '/api/v1/sams/promotion/couponList'
+	try:
+		headers = public_headers.copy()
+		headers.update({ "Content-Type": 'application/json' })
+		data = {
+			"selfPickUp": 0,
+			"channelType": 1,
+			"scene": "CHECKOUT",
+			"uid": personal_info.get("uid"),
+			"products": products,
+			"storeId": store_selected.get('storeId'),
+			"storeDeliveryTemplateId": store_selected.get('storeDeliveryTemplateId'),
+			"areaBlockId":  store_selected.get('areaBlockId'),
+			"deliveryModeId": store_selected.get('deliveryModeId')
+		}
+		ret = requests.post(url = url, headers = headers, data = json.dumps(data), timeout = TIMEOUT_DURATION)
+		ret_json = json.loads(ret.text)
+		if ret_json['success']:
+			couponListAll = ret_json['data'].get('couponList')
+			couponList = []
+			total_discount = 0
+			for i in range(len(couponListAll)):
+				isSelected = couponListAll[i].get('status')
+				if isSelected == 1:
+					promotionId = couponListAll[i].get('couponVO').get('ruleId')
+					couponName = couponListAll[i].get('couponVO').get('name')
+					discount = couponListAll[i].get('couponVO').get('promotion').get('discount').get('value')
+					couponList.append({
+						"promotionId": promotionId,
+						"storeId": store_selected.get('storeId'),
+					})
+					print(f'[{i}] {couponName} ]')
+					total_discount += int(discount) / 100
+			print(f'--- 共{len(couponList)}个优惠券 总共优惠{total_discount}元\n')
+			return RET_CODE.SUCCESS, couponList
 		else:
 			print(f"--- [Error] {ret_json['code']} {ret_json['msg']}")
 			return RET_CODE.UNKNOWN_ERROR, None
 	except Exception as e:
 		print(f"--- [Exception] {str(e)}")
 		return RET_CODE.EXCEPTION, None
+
 
 def GetCapacityData(store_selected):
 	print(f'- 获取可用配送时间 {CurrentTime()} -')
@@ -271,13 +343,14 @@ def GetCapacityData(store_selected):
 		print(f"--- [Exception] {str(e)}")
 		return RET_CODE.EXCEPTION, 0, 0
 
-def CommitPay(address_selected, store_selected, goods_list, personal_info, deliverStartTime, deliverEndTime):
+def CommitPay(address_selected, store_selected, goods_list, personal_info, couponList, deliverStartTime, deliverEndTime):
 	print(f'- 尝试提交订单 {CurrentTime()} -')
 	url = public_url + '/api/v1/sams/trade/settlement/commitPay'
 	try:
 		headers = public_headers.copy()
 		headers.update({ "Content-Type": 'application/json' })
 		data = {
+			"couponList": couponList,
 			"goodsList": goods_list,
 			"invoiceInfo": {},
 			"cartDeliveryType": DELIVERY_TYPE, "floorId": 1, "amount": 10000, "purchaserName": "",
@@ -320,9 +393,10 @@ class STATE_CODE(IntEnum):
 	GET_PERSONAL_INFO = 4,
 	SAVE_DELIVERY_ADDRESS = 5,
 	GET_USER_CART = 6,
-	GET_CAPACITY_DATA = 7,
-	COMMIT_PAY = 8,
-	FINISHED = 9,
+	GET_PROMOTION = 7,
+	GET_CAPACITY_DATA = 8,
+	COMMIT_PAY = 9,
+	FINISHED = 10,
 
 # Main Func
 if __name__ == '__main__':
@@ -343,7 +417,9 @@ if __name__ == '__main__':
 			ret_code = SaveDeliveryAddress(address_selected, personal_info)
 		elif state == STATE_CODE.GET_USER_CART:
 			refresh_cart_count = 0
-			ret_code, goods_list = GetUserCart(personal_info, store_list)
+			ret_code, goods_list, products, total_amount = GetUserCart(personal_info, store_list)
+		elif state == STATE_CODE.GET_PROMOTION:
+			ret_code, couponList = GetPromotion(personal_info, store_selected, products)
 		elif state == STATE_CODE.GET_CAPACITY_DATA:
 			if CONST_START_TIME != "" and CONST_END_TIME != "":
 				deliverStartTime = UnixTime(CONST_START_TIME)
@@ -352,9 +428,11 @@ if __name__ == '__main__':
 			else:
 				ret_code, deliverStartTime, deliverEndTime = GetCapacityData(store_selected)
 		elif state == STATE_CODE.COMMIT_PAY:
-			ret_code = CommitPay(address_selected, store_selected, goods_list, personal_info, deliverStartTime, deliverEndTime)
-			
-		if ret_code == RET_CODE.SUCCESS:
+			ret_code = CommitPay(address_selected, store_selected, goods_list, personal_info, couponList, deliverStartTime, deliverEndTime)
+		if state == STATE_CODE.GET_USER_CART and total_amount < cost and ret_code == RET_CODE.SUCCESS:
+			print(f"--- 未到起始金额{RETRY_TIME}s后重试\n")
+			time.sleep(RETRY_TIME)
+		elif ret_code == RET_CODE.SUCCESS:
 			state += 1
 		elif ret_code == RET_CODE.LIMITED:
 			time.sleep(LIMIT_RETRY_TIME)
